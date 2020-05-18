@@ -1,0 +1,90 @@
+生成一个spider 从东方财富网获取(股票代码)百度股票的链接 并且进行信息爬取 
+爬取后的信息通过Spider处理 
+提取出其中的关键信息形成字典 把字典以Item类的形式给到ItemPipline中 进行信息处理
+
+
+stocks.py中的文件
+
+# -*- coding: utf-8 -*-
+import scrapy
+import re
+ 
+ 
+class StocksSpider(scrapy.Spider):
+    name = "stocks"
+    start_urls = ['https://quote.eastmoney.com/stocklist.html']
+//开始爬取的URL
+ 
+    def parse(self, response):
+        for href in response.css('a::attr(href)').extract():
+//解析href attr属性
+            try:
+                stock = re.findall(r"[s][hz]\d{6}", href)[0]
+//得到股票码
+                url = 'https://gupiao.baidu.com/stock/' + stock + '.html'
+//访问URL——>生成器调用一次parse_stock函数 每次都进行一次信息解析
+                yield scrapy.Request(url, callback=self.parse_stock)
+            except:
+                continue
+ 
+    def parse_stock(self, response):
+//infoDict是传递给ItemPiplines的字典类型数据
+        infoDict = {}
+//css解析器进行解析
+        stockInfo = response.css('.stock-bets')
+        name = stockInfo.css('.bets-name').extract()[0]
+        keyList = stockInfo.css('dt').extract()
+        valueList = stockInfo.css('dd').extract()
+        for i in range(len(keyList)):
+            key = re.findall(r'>.*</dt>', keyList[i])[0][1:-5]
+            try:
+                val = re.findall(r'\d+\.?.*</dd>', valueList[i])[0][0:-5]
+            except:
+                val = '--'
+            infoDict[key]=val
+ 
+        infoDict.update(
+            {'股票名称': re.findall('\s.*\(',name)[0].split()[0] + \
+             re.findall('\>.*\<', name)[0][1:-1]})
+        yield infoDict
+
+
+
+
+pipelines.py
+# -*- coding: utf-8 -*-
+ 
+# Define your item pipelines here
+#
+# Don't forget to add your pipeline to the ITEM_PIPELINES setting
+# See: https://doc.scrapy.org/en/latest/topics/item-pipeline.html
+ 
+ 
+class BaidustocksPipeline(object):
+    def process_item(self, item, spider):
+        return item
+ 
+class BaidustocksInfoPipeline(object):
+    def open_spider(self, spider):
+        self.f = open('BaiduStockInfo.txt', 'w')
+ 
+    def close_spider(self, spider):
+        self.f.close()
+ 
+    def process_item(self, item, spider):
+        try:
+            line = str(dict(item)) + '\n'
+            self.f.write(line)
+        except:
+            pass
+        return item
+
+
+
+
+setting.py文件修改部分
+# Configure item pipelines
+# See https://scrapy.readthedocs.org/en/latest/topics/item-pipeline.html
+ITEM_PIPELINES = {
+    'BaiduStocks.pipelines.BaidustocksInfoPipeline': 300,
+}
